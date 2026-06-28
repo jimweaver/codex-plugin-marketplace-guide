@@ -166,68 +166,6 @@
       align-items: start;
       margin: 28px 0 20px;
     }
-    .pdf-reader {
-      margin: 0 0 28px;
-      background: var(--surface);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      overflow: hidden;
-      box-shadow: var(--shadow);
-    }
-    .pdf-reader-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      padding: 15px 18px;
-      border-bottom: 1px solid var(--line);
-    }
-    .pdf-reader h2 {
-      margin: 0;
-      font-size: 18px;
-      line-height: 1.25;
-      letter-spacing: 0;
-    }
-    .pdf-reader p {
-      margin: 3px 0 0;
-      color: var(--muted);
-      font-size: 14px;
-    }
-    .pdf-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      justify-content: flex-end;
-    }
-    .pdf-action {
-      min-height: 36px;
-      display: inline-flex;
-      align-items: center;
-      border: 1px solid var(--line);
-      border-radius: 7px;
-      background: #fff;
-      color: #34423f;
-      padding: 0 13px;
-      font-size: 13px;
-      font-weight: 720;
-      text-decoration: none;
-    }
-    .pdf-action.primary {
-      background: var(--teal);
-      border-color: var(--teal);
-      color: #fff;
-    }
-    .pdf-frame {
-      width: 100%;
-      height: min(78vh, 860px);
-      border: 0;
-      display: block;
-      background: #f3f6f5;
-    }
-    .pdf-fallback {
-      padding: 18px;
-      color: var(--muted);
-    }
     .filters {
       display: flex;
       flex-wrap: wrap;
@@ -515,16 +453,6 @@
       }
       main { padding: 30px 16px 44px; }
       .stats, .sidebar, .cards { grid-template-columns: 1fr; }
-      .pdf-reader-head {
-        flex-direction: column;
-        align-items: flex-start;
-      }
-      .pdf-actions {
-        justify-content: flex-start;
-      }
-      .pdf-frame {
-        height: 620px;
-      }
       .section-head {
         flex-direction: column;
         align-items: flex-start;
@@ -563,25 +491,6 @@
           <div class="stat"><strong>604</strong><span>本地技能文件</span></div>
         </div>
       </aside>
-    </section>
-    <section class="pdf-reader" id="pdf" aria-labelledby="pdf-title">
-      <div class="pdf-reader-head">
-        <div>
-          <h2 id="pdf-title">PDF 阅读版</h2>
-          <p>想快速分享或离线阅读，可以直接在这里打开 PDF。</p>
-        </div>
-        <div class="pdf-actions">
-          <a class="pdf-action primary" href="codex-plugin-marketplace-guide.pdf" target="_blank" rel="noreferrer">打开 PDF</a>
-          <a class="pdf-action" href="codex-plugin-marketplace-guide.pdf" download>下载 PDF</a>
-        </div>
-      </div>
-      <object class="pdf-frame" data="codex-plugin-marketplace-guide.pdf" type="application/pdf">
-        <div class="pdf-fallback">
-          当前浏览器没有内嵌 PDF 阅读器。请使用
-          <a href="codex-plugin-marketplace-guide.pdf" target="_blank" rel="noreferrer">打开 PDF</a>
-          或下载后阅读。
-        </div>
-      </object>
     </section>
     <section id="catalog" aria-label="插件目录">
       <div class="toolbar">
