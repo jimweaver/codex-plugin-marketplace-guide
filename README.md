@@ -11,6 +11,7 @@ The generated `index.html` explains the locally synced Codex Marketplace plugin 
 ## Contents
 
 - `index.html` - self-contained static website for the 180-plugin guide
+- `skills.html` - local SKILL.md document index (auto-generated snapshot)
 - `build_codex_plugin_marketplace_guide.js` - generator script used to rebuild the page from a local Codex Marketplace sync
 
 ## Regenerate
@@ -21,7 +22,7 @@ Run from a machine with a local Codex plugin sync at `~/.codex/.tmp/plugins`:
 node build_codex_plugin_marketplace_guide.js
 ```
 
-The script writes `codex-plugin-marketplace-guide.html` to `/home/jim/Desktop` in the original local workflow. For this repo, copy or adapt the output to `index.html`.
+The script writes both `index.html` (plugin catalog) and `skills.html` (local skills index) into the repo.
 
 ## Data Scope
 

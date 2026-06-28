@@ -169,6 +169,82 @@ function countSkills(pluginDir) {
   return walk(pluginDir, (file) => path.basename(file) === "SKILL.md").length;
 }
 
+function cleanText(value) {
+  return String(value || "")
+    .replace(/\r?\n/g, " ")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/[`*_~>|]/g, "")
+    .trim();
+}
+
+function parseFrontMatter(raw) {
+  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) return {};
+  const meta = {};
+  for (const line of match[1].split(/\r?\n/)) {
+    const m = line.match(/^\s*([A-Za-z0-9_-]+)\s*:\s*(.*?)\s*$/);
+    if (!m) continue;
+    const key = m[1];
+    let value = m[2] || "";
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    meta[key] = value;
+  }
+  return meta;
+}
+
+function extractSkillExcerpt(raw, frontMatterDescription) {
+  if (frontMatterDescription) return cleanText(frontMatterDescription).slice(0, 240);
+  const body = raw.replace(/^---[\s\S]*?---\r?\n?/, "");
+  const paragraphs = body
+    .split(/\r?\n\r?\n+/)
+    .map(cleanText)
+    .filter(Boolean);
+  for (const paragraph of paragraphs) {
+    if (/^#/.test(paragraph) || /^`{3}/.test(paragraph) || paragraph.startsWith("|")) continue;
+    return paragraph.slice(0, 240);
+  }
+  return "";
+}
+
+function parseSkillItems(skillFiles, pluginMetaByName) {
+  const items = [];
+  for (const file of skillFiles) {
+    const relParts = path.relative(repoRoot, file).split(path.sep);
+    const skillIndex = relParts.indexOf("skills");
+    if (skillIndex < 1 || !relParts[skillIndex + 1]) continue;
+
+    const pluginName = skillIndex >= 2 ? relParts[skillIndex - 1] : relParts[skillIndex + 1];
+    const skillSlug = relParts[skillIndex + 1];
+    if (!pluginName || !skillSlug) continue;
+
+    let raw = "";
+    try {
+      raw = fs.readFileSync(file, "utf8");
+    } catch {
+      continue;
+    }
+
+    const frontMatter = parseFrontMatter(raw);
+    const description = extractSkillExcerpt(raw, frontMatter.description);
+    const meta = pluginMetaByName.get(pluginName) || {};
+
+    items.push({
+      pluginName,
+      pluginDisplayName: meta.displayName || titleFromSlug(pluginName),
+      pluginCategory: meta.categoryZh || "",
+      pluginInstalled: Boolean(meta.installed),
+      skillSlug,
+      skillName: frontMatter.name ? frontMatter.name : titleFromSlug(skillSlug),
+      description: description || "暂无简介，可在原始 SKILL.md 中查看完整内容。",
+      sourcePath: path.relative(repoRoot, file).replace(/\\/g, "/"),
+    });
+  }
+  return items;
+}
+
 function readReadmeSummary(pluginDir) {
   const file = path.join(pluginDir, "README.md");
   if (!fs.existsSync(file)) return "";
@@ -269,12 +345,20 @@ const plugins = pluginNames.map((name) => {
   return item;
 });
 
+const pluginMetaByName = new Map(plugins.map((plugin) => [plugin.name, plugin]));
+const allSkillFiles = walk(repoRoot, (file) => path.basename(file) === "SKILL.md");
+const skills = parseSkillItems(allSkillFiles, pluginMetaByName).sort((a, b) => {
+  if (a.pluginDisplayName !== b.pluginDisplayName) return a.pluginDisplayName.localeCompare(b.pluginDisplayName, "zh-CN");
+  return a.skillName.localeCompare(b.skillName, "zh-CN");
+});
+
 const categoryCounts = plugins.reduce((acc, plugin) => {
   acc[plugin.categoryZh] = (acc[plugin.categoryZh] || 0) + 1;
   return acc;
 }, {});
 
 const skillsTotal = plugins.reduce((sum, plugin) => sum + plugin.skills, 0);
+const localSkillsTotal = skills.length;
 const generatedAt = new Date().toLocaleString("zh-CN", {
   timeZone: "America/Los_Angeles",
   year: "numeric",
@@ -295,6 +379,475 @@ function escHtml(value) {
 
 const dataJson = JSON.stringify(plugins).replaceAll("</script", "<\\/script");
 const categoriesJson = JSON.stringify(categoryCounts).replaceAll("</script", "<\\/script");
+const skillsJson = JSON.stringify(skills).replaceAll("</script", "<\\/script");
+const skillsByPlugin = skills.reduce((acc, skill) => {
+  acc[skill.pluginName] = (acc[skill.pluginName] || 0) + 1;
+  return acc;
+}, {});
+const skillsByPluginJson = JSON.stringify(skillsByPlugin).replaceAll("</script", "<\\/script");
+
+function renderSkillsPage() {
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Codex 本地技能目录</title>
+  <style>
+    :root {
+      --bg: #f7f8f6;
+      --surface: #ffffff;
+      --line: #dae4e1;
+      --text: #17201f;
+      --muted: #60706d;
+      --teal: #08756f;
+      --shadow: 0 14px 34px rgba(19, 44, 40, 0.08);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--text);
+      line-height: 1.56;
+      background: linear-gradient(180deg, rgba(8, 117, 111, 0.05), transparent 340px), var(--bg);
+    }
+    a { color: inherit; }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      border-bottom: 1px solid var(--line);
+      background: rgba(247, 248, 246, 0.94);
+      backdrop-filter: blur(12px);
+    }
+    .nav {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 13px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 780;
+      text-decoration: none;
+      color: var(--text);
+      letter-spacing: 0;
+    }
+    .mark {
+      width: 32px;
+      height: 32px;
+      border: 2px solid var(--text);
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      background: #fff;
+      font-size: 14px;
+    }
+    .navlinks {
+      display: flex;
+      gap: 18px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+    .navlinks a {
+      text-decoration: none;
+      color: inherit;
+    }
+    .navlinks a:hover {
+      color: var(--teal);
+    }
+    main {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 42px 24px 60px;
+    }
+    h1 {
+      margin: 0 0 16px;
+      max-width: 860px;
+      font-size: clamp(34px, 4.8vw, 58px);
+      letter-spacing: 0;
+      line-height: 0.98;
+    }
+    .lead {
+      margin: 0;
+      max-width: 940px;
+      color: #40514d;
+      font-size: 18px;
+    }
+    .hero-panel, .note, .skill-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(340px, 0.85fr);
+      gap: 30px;
+      align-items: end;
+      margin-bottom: 22px;
+    }
+    .hero-panel {
+      padding: 16px 18px;
+      box-shadow: var(--shadow);
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+    .stat {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfb;
+    }
+    .stat strong {
+      display: block;
+      color: var(--teal);
+      font-size: 30px;
+      line-height: 1.08;
+    }
+    .stat span {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 650;
+    }
+    .toolbar {
+      display: grid;
+      grid-template-columns: 1fr minmax(220px, 280px) minmax(150px, 200px);
+      gap: 12px;
+      margin-bottom: 18px;
+      align-items: start;
+    }
+    .search {
+      position: relative;
+    }
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    .search input,
+    .search select,
+    .toolbar select {
+      width: 100%;
+      min-height: 42px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface);
+      color: var(--text);
+      padding: 0 12px;
+      font: inherit;
+      font-size: 14px;
+      outline: none;
+    }
+    .search input {
+      padding-left: 38px;
+    }
+    .search input:focus,
+    .toolbar select:focus {
+      border-color: rgba(8, 117, 111, 0.55);
+      box-shadow: 0 0 0 3px rgba(8, 117, 111, 0.12);
+    }
+    .search::before {
+      content: "🔍";
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      pointer-events: none;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 14px;
+    }
+    .section-head h2 {
+      margin: 0;
+      font-size: 20px;
+      letter-spacing: 0;
+    }
+    .section-head p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 13px;
+    }
+    .skill-card {
+      padding: 15px 16px;
+      min-height: 190px;
+      display: grid;
+      grid-template-rows: auto auto 1fr auto;
+      gap: 8px;
+    }
+    .skill-card h3 {
+      margin: 0;
+      font-size: 17px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+    .skill-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 2px;
+    }
+    .badge {
+      border: 1px solid #e4ebe8;
+      border-radius: 7px;
+      background: #f8faf9;
+      color: #4c5d59;
+      padding: 4px 8px;
+      font-size: 12px;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+    .tag {
+      border: 1px solid rgba(8, 117, 111, 0.25);
+      color: #075f5a;
+      background: rgba(8, 117, 111, 0.08);
+      border-radius: 7px;
+      padding: 4px 8px;
+      font-size: 12px;
+      font-weight: 760;
+      white-space: nowrap;
+    }
+    .summary {
+      margin: 2px 0 0;
+      color: #3b4d49;
+      font-size: 14px;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+    }
+    .field {
+      display: grid;
+      grid-template-columns: 56px 1fr;
+      gap: 8px;
+      padding-top: 8px;
+      border-top: 1px solid #edf1ef;
+      color: #40514d;
+      font-size: 12px;
+    }
+    .field b {
+      color: var(--text);
+      font-weight: 760;
+    }
+    .empty {
+      display: none;
+      padding: 30px;
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.75);
+      color: var(--muted);
+      text-align: center;
+    }
+    .note {
+      margin-top: 26px;
+      padding: 16px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .note code {
+      background: #f3f6f5;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 1px 5px;
+    }
+    @media (max-width: 1120px) {
+      .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .hero, .toolbar { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 720px) {
+      .nav { flex-direction: column; align-items: flex-start; }
+      .navlinks { width: 100%; overflow-x: auto; padding-bottom: 2px; }
+      main { padding: 30px 16px 44px; }
+      .cards, .stats { grid-template-columns: 1fr; }
+      .toolbar { grid-template-columns: 1fr; }
+      .section-head { flex-direction: column; align-items: flex-start; }
+      .field { grid-template-columns: 1fr; gap: 2px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <nav class="nav" aria-label="主导航">
+      <a class="brand" href="index.html">
+        <span class="mark">C</span>
+        <span>Codex 技能与插件索引</span>
+      </a>
+      <div class="navlinks">
+        <a href="index.html">插件目录</a>
+        <a href="skills.html">本地技能目录</a>
+      </div>
+    </nav>
+  </header>
+  <main>
+    <section class="hero" aria-labelledby="skills-title">
+      <div>
+        <h1 id="skills-title">本地 SKILL 文档总览</h1>
+        <p class="lead">该页面基于本机同步目录提取，可查看当前环境里可见的 604 个技能文件（可能随本地缓存变化）。每条仅保留标题与摘要，完整内容可在本机路径查看。</p>
+      </div>
+      <aside class="hero-panel" aria-label="统计">
+        <div class="stats">
+          <div class="stat"><strong>${localSkillsTotal}</strong><span>技能文件</span></div>
+          <div class="stat"><strong>${skillsByPlugin ? Object.keys(skillsByPlugin).length : 0}</strong><span>所属插件</span></div>
+        </div>
+      </aside>
+    </section>
+    <section aria-label="技能目录">
+      <div class="toolbar">
+        <label class="search">
+          <span class="visually-hidden">搜索技能</span>
+          <input id="skillsSearch" type="search" placeholder="搜索技能名、插件、关键词">
+        </label>
+        <select id="pluginFilter" aria-label="按插件筛选">
+          <option value="all">全部插件</option>
+        </select>
+        <select id="sortMode" aria-label="排序方式">
+          <option value="plugin">按插件</option>
+          <option value="name">按技能名</option>
+        </select>
+      </div>
+      <div class="section-head">
+        <h2 id="skillsResultTitle">全部技能</h2>
+        <p id="skillsResultCount">${localSkillsTotal} 条结果</p>
+      </div>
+      <div class="cards" id="skillsCards"></div>
+      <div class="empty" id="skillsEmpty">没有匹配到技能，请换一个关键词或清空筛选。</div>
+      <div class="note">
+        <p>来源目录：<code>/home/jim/.codex/.tmp/plugins</code>。页面不读取本机文件，仅展示基于本次构建时导出的静态快照。</p>
+      </div>
+    </section>
+  </main>
+  <script>
+    const SKILLS = ${skillsJson};
+    const SKILLS_BY_PLUGIN = ${skillsByPluginJson};
+    const searchEl = document.querySelector("#skillsSearch");
+    const pluginFilter = document.querySelector("#pluginFilter");
+    const sortModeEl = document.querySelector("#sortMode");
+    const cardsEl = document.querySelector("#skillsCards");
+    const emptyEl = document.querySelector("#skillsEmpty");
+    const resultCountEl = document.querySelector("#skillsResultCount");
+    const resultTitleEl = document.querySelector("#skillsResultTitle");
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    function normalize(value) {
+      return String(value || "").trim().toLowerCase();
+    }
+
+    function slugDisplay(skill) {
+      return escapeHtml(skill.skillSlug);
+    }
+
+    function skillCardTemplate(skill) {
+      const status = skill.pluginInstalled ? "已安装缓存" : "未安装缓存";
+      const pluginLabel = skill.pluginDisplayName || skill.pluginName;
+      return \`
+        <article class="skill-card">
+          <div>
+            <h3>\${escapeHtml(skill.skillName)}</h3>
+            <div class="skill-meta">
+              <span class="tag">\${escapeHtml(pluginLabel)}</span>
+              <span class="badge">所属插件: \${escapeHtml(skill.pluginName)}</span>
+              <span class="badge">\${slugDisplay(skill)}</span>
+            </div>
+            <p class="summary">\${escapeHtml(skill.description)}</p>
+          </div>
+          <div class="field"><b>状态</b><span>\${status}</span></div>
+          <div class="field"><b>类别</b><span>\${escapeHtml(skill.pluginCategory || "未注明")}</span></div>
+          <div class="field"><b>来源</b><span><code>\${escapeHtml(skill.sourcePath)}</code></span></div>
+        </article>\`;
+    }
+
+    function renderPluginOptions() {
+      const options = Object.entries(SKILLS_BY_PLUGIN).sort((a, b) => {
+        if (b[1] !== a[1]) return b[1] - a[1];
+        return String(a[0]).localeCompare(String(b[0]), "zh-CN");
+      });
+      for (const [pluginName, count] of options) {
+        const option = document.createElement("option");
+        option.value = pluginName;
+        option.textContent = \`\${pluginName}（\${count}）\`;
+        pluginFilter.appendChild(option);
+      }
+    }
+
+    function renderSkills() {
+      const query = normalize(searchEl.value);
+      const pluginValue = pluginFilter.value;
+      const mode = sortModeEl.value;
+      let rows = SKILLS.filter((skill) => {
+        if (pluginValue !== "all" && skill.pluginName !== pluginValue) return false;
+        if (!query) return true;
+        const haystack = normalize([
+          skill.skillName,
+          skill.skillSlug,
+          skill.pluginName,
+          skill.pluginDisplayName,
+          skill.description,
+          skill.pluginCategory
+        ].join(" "));
+        return haystack.includes(query);
+      });
+      rows.sort((a, b) => {
+        if (mode === "name") {
+          const byName = a.skillName.localeCompare(b.skillName, "zh-CN");
+          if (byName !== 0) return byName;
+          return a.pluginDisplayName.localeCompare(b.pluginDisplayName, "zh-CN");
+        }
+        if (a.pluginDisplayName === b.pluginDisplayName) {
+          return a.skillName.localeCompare(b.skillName, "zh-CN");
+        }
+        return a.pluginDisplayName.localeCompare(b.pluginDisplayName, "zh-CN");
+      });
+      cardsEl.innerHTML = rows.map(skillCardTemplate).join("");
+      resultCountEl.textContent = \`\${rows.length} 条结果\`;
+      resultTitleEl.textContent = pluginValue === "all" ? "全部技能" : (pluginValue + " 技能");
+      emptyEl.style.display = rows.length ? "none" : "block";
+    }
+
+    renderPluginOptions();
+    renderSkills();
+
+    searchEl.addEventListener("input", renderSkills);
+    pluginFilter.addEventListener("change", renderSkills);
+    sortModeEl.addEventListener("change", renderSkills);
+  </script>
+</body>
+</html>`;
+}
 
 const html = `<!doctype html>
 <html lang="zh-CN">
@@ -772,21 +1325,22 @@ const html = `<!doctype html>
         <a href="#categories">类别</a>
         <a href="#matrix">快速选择</a>
         <a href="#scope">来源范围</a>
+        <a href="skills.html">本地技能目录</a>
       </div>
     </nav>
   </header>
   <main id="top">
     <section class="hero" aria-labelledby="title">
       <div>
-        <h1 id="title">180 个 Codex Marketplace 插件，一页中文看懂。</h1>
-        <p class="lead">这份网站基于本机同步的 Codex 官方 Marketplace 清单生成。它覆盖全部 180 个可用插件，并把每个插件的用途、适合场景、授权方式、技能数量和官网入口整理成中文卡片。</p>
+        <h1 id="title">${plugins.length} 个 Codex Marketplace 插件，一页中文看懂。</h1>
+        <p class="lead">这份网站基于本机同步的 Codex 官方 Marketplace 清单生成。它覆盖当前 ${plugins.length} 个可用插件，并把每个插件的用途、适合场景、授权方式、技能文件与官网入口整理成中文卡片。</p>
       </div>
       <aside class="hero-panel" aria-label="统计">
         <p class="panel-title">当前 Marketplace 同步范围</p>
         <div class="stats">
           <div class="stat"><strong>${plugins.length}</strong><span>可用插件</span></div>
           <div class="stat"><strong>${Object.keys(categoryCounts).length}</strong><span>类别</span></div>
-          <div class="stat"><strong>${skillsTotal}</strong><span>本地技能文件</span></div>
+          <div class="stat"><strong>${localSkillsTotal}</strong><span>本地技能文件</span></div>
         </div>
       </aside>
     </section>
@@ -845,7 +1399,7 @@ const html = `<!doctype html>
       </div>
     </section>
   </main>
-  <footer>生成时间：${escHtml(generatedAt)} America/Los_Angeles。这个页面解释的是本机同步到的 180 个可用插件，不代表未来 Marketplace 不会新增或下架。</footer>
+  <footer>生成时间：${escHtml(generatedAt)} America/Los_Angeles。这个页面解释的是本机同步到的 ${plugins.length} 个可用插件，不代表未来 Marketplace 不会新增或下架。</footer>
   <script>
     const PLUGINS = ${dataJson};
     const CATEGORY_COUNTS = ${categoriesJson};
@@ -992,6 +1546,10 @@ const html = `<!doctype html>
 </body>
 </html>`;
 
+const skillsFile = path.join(workspace, "skills.html");
 fs.writeFileSync(outFile, html);
+fs.writeFileSync(skillsFile, renderSkillsPage());
 console.log(`Wrote ${outFile}`);
 console.log(`${plugins.length} plugins, ${skillsTotal} skills`);
+console.log(`Wrote ${skillsFile}`);
+console.log(`${localSkillsTotal} local SKILL files`);
