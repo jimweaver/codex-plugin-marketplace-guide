@@ -26,3 +26,5 @@ The script writes `codex-plugin-marketplace-guide.html` to `/home/jim/Desktop` i
 ## Data Scope
 
 This page reflects the local Marketplace sync available when it was generated. The live Marketplace may add, remove, or change plugins over time.
+
+Website updates are applied from the `main` branch and rendered directly by GitHub Pages.
