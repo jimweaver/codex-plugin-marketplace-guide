@@ -209,6 +209,27 @@ function extractSkillExcerpt(raw, frontMatterDescription) {
   return "";
 }
 
+function hasChineseText(value) {
+  return /[\u4e00-\u9fff]/.test(String(value || ""));
+}
+
+function asChineseDescription({
+  description,
+  pluginDisplayName,
+  pluginCategory,
+  summaryZh,
+  taskZh,
+  skillName,
+}) {
+  const normalized = String(description || "").trim();
+  if (normalized && hasChineseText(normalized) && normalized !== "-") {
+    return normalized;
+  }
+  const categoryText = pluginCategory ? `${pluginCategory}场景` : "相关场景";
+  const context = summaryZh || taskZh || "适合在该插件场景中配合上下文使用。";
+  return `这是“${pluginDisplayName}”下的技能「${skillName}」，用于${categoryText}。${context}`;
+}
+
 function parseSkillItems(skillFiles, pluginMetaByName) {
   const items = [];
   for (const file of skillFiles) {
@@ -230,6 +251,14 @@ function parseSkillItems(skillFiles, pluginMetaByName) {
     const frontMatter = parseFrontMatter(raw);
     const description = extractSkillExcerpt(raw, frontMatter.description);
     const meta = pluginMetaByName.get(pluginName) || {};
+    const normalizedDescription = asChineseDescription({
+      description,
+      pluginDisplayName: meta.displayName || titleFromSlug(pluginName),
+      pluginCategory: meta.categoryZh || "",
+      summaryZh: meta.summaryZh || "",
+      taskZh: meta.taskZh || "",
+      skillName: frontMatter.name ? frontMatter.name : titleFromSlug(skillSlug),
+    });
 
     items.push({
       pluginName,
@@ -238,7 +267,7 @@ function parseSkillItems(skillFiles, pluginMetaByName) {
       pluginInstalled: Boolean(meta.installed),
       skillSlug,
       skillName: frontMatter.name ? frontMatter.name : titleFromSlug(skillSlug),
-      description: description || "暂无简介，可在原始 SKILL.md 中查看完整内容。",
+      description: normalizedDescription || "暂无简介，可在原始 SKILL.md 中查看完整内容。",
       sourcePath: path.relative(repoRoot, file).replace(/\\/g, "/"),
     });
   }
